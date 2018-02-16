@@ -12,45 +12,18 @@ class ECCE(object):
 
         if sim_func == 'cosine_sim':
             self.sim_func = cy.cosine_sim
-            self.sim_min_value = -1.0
-        elif sim_func == 'eucl_sim':
-            print "NOT TESTED - NOT WORKING"
-            self.sim_func = cy.eucl_sim
-            self.sim_min_value = 0.0
-        elif sim_func == 'minmax_sim':
-            self.sim_func = cy.minmax_sim
-            self.sim_min_value = 0.0
         elif sim_func == 'py_cosine_sim':
             print "NOT TESTED - NOT WORKING"
             self.sim_func = py.cosine_sim
-            self.sim_min_value = -1.0
-        elif sim_func == 'py_cos_sim_sprs':
-            print "NOT TESTED - NOT WORKING"
-            self.sim_func = py.cos_sim_sprs
-            self.sim_min_value = -1.0
-        elif sim_func == 'py_minmax_sim':
-            # print "NOT TESTED - NOT WORKING"
-            self.sim_func = py.minmax_sim
-            self.sim_min_value = 0.0
-        elif sim_func == 'py_jaccard_sim':
-            print "NOT TESTED - NOT WORKING"
-            self.sim_func = py.jaccard_sim
-            self.sim_min_value = 0.0
-        elif sim_func == 'py_hamming_sim':
-            print "NOT TESTED - NOT WORKING"
-            self.sim_func = py.hamming_sim
-            self.sim_min_value = 0.0
-        elif simfunc == 'py_correl_sim':
-            print "NOT TESTED - NOT WORKING"
-            self.sim_func = py.correl_sim
-            self.sim_min_value = 0.0
 
         print "Initialing ECCE..."
 
-        # Selecting the fit() method whether the number of input vectors are 1 or more.
+        # Selecting the fit() and predict() methods wheather the...
+        # ...number of input vectors are 1 or more.
         if inpt_vectz == 1:
 
-            fit = _fit
+            self.fit = self._fit
+            self.predict = self._predict
 
         else:
 
@@ -60,12 +33,13 @@ class ECCE(object):
             self.inpt_vectz = inpt_vectz
             self.agg_comb = agg_comb
 
-            fit = _fit_multi
+            self.fit = self._fit_multi
+            self.predict = self._predict_multi
 
         # RFSE paramters
         self.ci2gtag = dict()
-        self.gnr_classes = list()
-        self.gnr_sigma = list()
+        self.gnr_csums = list()
+        self.gnr_ssums = list()
 
     def _fit(self, trn_mtrx, cls_tgs):
 
@@ -78,7 +52,7 @@ class ECCE(object):
         # Creating the initial Class Centroids.
         for i, gnr_tag in enumerate(np.unique(cls_tgs)):
             self.ci2gtag[i] = gnr_tag
-            self.gnr_classes.append(trn_mtrx[np.where((cls_tgs == gnr_tag))].mean(axis=0))
+            self.gnr_csums.append(trn_mtrx[np.where((cls_tgs == gnr_tag))].mean(axis=0))
 
         # Calculating the initial sigma thresholds on Centroids.
         for i, gnr_tag in enumerate(np.unique(cls_tgs)):
@@ -90,35 +64,82 @@ class ECCE(object):
             gnr_set_idxs = np.where((cls_tgs == gnr_tag))
 
             # Creating the initial Class Centroids.
-            self.gnr_classes.append(trn_mtrx[gnr_set_idxs].mean(axis=0))
+            # TO BE RELPACED WITH CYTHON
+            cls_cvect = trn_mtrx[gnr_set_idxs].mean(axis=0)
+            # NOTE: Normalisation of the Centroids-Sum will take place...
+            # ...inside COSINE SIMILARITY calculation.
+            #    / np.linalg.norm(trn_mtrx[gnr_set_idxs], axis=0)
 
             # Calculating the similarities of the Genre's traning set pages with the...
             # ...Genre's Centroind.
-            trn_set_sims = np.array(self.sim_func(trn_mtrx, gnr_set_idxs, self.gnr_classes))
+            trn_set_sims = np.array(self.sim_func(trn_mtrx, gnr_set_idxs, cls_cvect))
 
-            # Calculating the Sigma thresholds.
-            self.gnr_sigma.append(np.sum(trn_set_sims) / float(gnr_set_idxs.size))
+            # Calculating the Similarity sums and Sigma threshold for this class centroid.
+            self.gnr_ssums.append(np.sum(trn_set_sims) / float(gnr_set_idxs.size))
+            gnr_simga = self.gnr_ssums[i] / float(gnr_set_idxs.size)
 
             # Re-calculating the genres centroids by rejecting the outages, i.e. the pages...
             # ...where their similarity is greater than sigma threshold.
             # NOTE: DOUBLE CHECK THIS
-            new_trn_set_idxs = gnr_set_idxs[np.where(trn_set_sims <= self.gnr_sigma[i])]
+            new_trn_set_idxs = gnr_set_idxs[np.where(trn_set_sims >= gnr_simga)]
 
             # Calculating the new Centroid for this Genre class.
-            self.gnr_classes[i] = trn_mtrx[new_trn_set_idxs].mean(axis=0)
+            self.gnr_csums.append(trn_mtrx[new_trn_set_idxs].mean(axis=0))
 
         # Converting the lists into narrays.
-        self.gnr_classes = np.vstack(self.gnr_classes)
-        self.gnr_sigma = np.hstack(self.gnr_sigma)
+        self.gnr_csums = np.vstack(self.gnr_csums)
+        self.gnr_ssums = np.hstack(self.gnr_ssums)
 
-        return self.gnr_classes, self.gnr_sigma, self.ci2gtag[i]
+        return self.gnr_csums, self.gnr_ssums, self.ci2gtag
 
     def _fit_multi(self, *args):
         pass
 
-    def _predict(self, tst_mtrx):
-        # It should be tst_mtrx = corpus_mtrx[crv_idxs]
-        # It should be cls_tgs = cls_gnr_tgs[crv_idxs]
+    def _predict(self, tst_mcd trx):
+
+        # Getting test samples similaries by presenting them in random order to the learners...
+        # ...of the ensemble. Then deciding the class tag given the best similary score over sigma.
+        # NOTE: The Centroids and the Sigma are gradualy moving towards to the new notion of...
+        # ...the genre.
+        for smpl_i in np.random.permutation(tst_mtrx.shape[0]):
+
+            # Calculating the similarities of the random test pages with all the...
+            # ...Genre Centroinds.
+            tst_i_csims = np.array(self.sim_func(trn_mtrx, np.array([smpl_i]), self.gnr_csums))
+
+            # Getting the maximal similar centroid index and the max similarity.
+            maxsim_ci = argmax(tst_i_csims)
+            max_sim
+
+            if max_sim >= self.gnr_ssums[maxsim_ci]
+
+            # Caclulating the max-similar centroid's new sum values. Adding the samples that is...
+            # ...very close to this centroid for adjusting the centroid for the next sample.
+            self.gnr_csums[maxsim_ci] = np.sum(
+                (self.gnr_csums[maxsim_ci], trn_mtrx[smpl_i]), axis=0
+            )
+
+            # Calculating the new sigma sum
+
+            for i, gnr_tag in enumerate(np.unique(cls_tgs)):
+
+                # Creating the initial Class Centroids.
+                self.gnr_csums.append(
+                    trn_mtrx[new_trn_set_idxs].mean(axis=0) / np.linalg.norm(trn_mtrx[new_trn_set_idxs], axis=0)
+                )
+
+
+
+                # Calculating the Sigma thresholds.
+                self.gnr_sigma.append(np.sum(trn_set_sims) / float(gnr_set_idxs.size))
+
+                # Re-calculating the genres centroids by rejecting the outages, i.e. the pages...
+                # ...where their similarity is greater than sigma threshold.
+                # NOTE: DOUBLE CHECK THIS
+                new_trn_set_idxs = gnr_set_idxs[np.where(trn_set_sims >= self.gnr_sigma[i])]
+
+                # Calculating the new Centroid for this Genre class.
+                self.gnr_classes[i] = trn_mtrx[new_trn_set_idxs].mean(axis=0)
 
         mtrx_feat_idxs = np.arange(tst_mtrx.shape[1])
 
