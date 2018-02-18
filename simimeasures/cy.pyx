@@ -11,18 +11,16 @@ import numpy as np
 cdef extern from "math.h":
     cdef double sqrt(double x) nogil
 
-cpdef double [:, ::1] cosine_sim(double [:, ::1] m1, double [:, ::1] m2, Py_ssize_t [::1] ci):
+cpdef double [:, ::1] cosine_sim(double [:, ::1] m1, Py_ssize_t [::1] m1rows_i, double [:, ::1] m2):
 
     cdef:
         # Matrix index variables.
-        Py_ssize_t i, j, k, iz, jz, ci_i
+        Py_ssize_t m1r_i, m2_i, p1m1r_i, p2m2_i, p1_j, p2_j, p3m1r_i, p3m2_i, p3_j
 
         # Matrices dimentions intilized variables.
-        Py_ssize_t m1_I = m1.shape[0]
-        Py_ssize_t m1_J = m1.shape[1]
+        Py_ssize_t m_J = m1.shape[1]
         Py_ssize_t m2_I = m2.shape[0]
-        Py_ssize_t m2_J = m2.shape[1]
-        Py_ssize_t ci_I = ci.shape[0]
+        Py_ssize_t m1r_I = m1rows_i.shape[0]
 
         # MemoryViews for the cython arrays used for sotring the temporary and...
         # ...to be retured results.
@@ -31,9 +29,9 @@ cpdef double [:, ::1] cosine_sim(double [:, ::1] m1, double [:, ::1] m2, Py_ssiz
         double [:, ::1] cssim_vect
 
     # Creating the temporary cython arrays.
-    m1_norms = cvarray(shape=(m1_I,), itemsize=sizeof(double), format="d")
+    m1_norms = cvarray(shape=(m1r_I,), itemsize=sizeof(double), format="d")
     m2_norms = cvarray(shape=(m2_I,), itemsize=sizeof(double), format="d")
-    cssim_vect = cvarray(shape=(m1_I, m2_I), itemsize=sizeof(double), format="d")
+    cssim_vect = cvarray(shape=(m1r_I, m2_I), itemsize=sizeof(double), format="d")
 
     # The following operatsion taking place in the non-gil and parallel...
     # ...openmp emviroment.
@@ -42,170 +40,55 @@ cpdef double [:, ::1] cosine_sim(double [:, ::1] m1, double [:, ::1] m2, Py_ssiz
         # Initilising temporary storage arrays. NOTE: This is a mandatory process because as...
         # ...in C garbage values can case floating point overflow, thus, peculiar results...
         # ...like NaN or incorrect calculatons.
-        for iz in range(m1_I):
-            m1_norms[iz] = 0.0
+        for m1r_i in range(m1r_I):
+            m1_norms[m1r_i] = 0.0
 
-        for iz in range(m2_I):
-            m2_norms[iz] = 0.0
+        for m2_i in range(m2_I):
+            m2_norms[m2_i] = 0.0
 
-        for iz in range(m1_I):
-            for jz in range(m2_I):
-                cssim_vect[iz, jz] = 0.0
+        for m1r_i in range(m1r_I):
+            for m2_i in range(m2_I):
+                cssim_vect[m1r_i, m2_i] = 0.0
 
         # Calculating the Norms for the first matrix.
-        for i in prange(m1_I, schedule='guided'):
+        for p1m1r_i in prange(m1r_I, schedule='guided'):
 
             # Calculating Sum.
-            # for j in range(m1_J):
-            #     m1_norms[i] += m1[i, j] * m1[i, j]
-            for ci_i in range(ci_I):
-                m1_norms[i] += m1[i, ci[ci_i]] * m1[i, ci[ci_i]]
+            for p1_j in range(m_J):
+                m1_norms[p1m1r_i] += m1[m1rows_i[p1m1r_i], p1_j] * m1[m1rows_i[p1m1r_i], p1_j]
 
             # Calculating the Square root of the sum
-            m1_norms[i] = sqrt(m1_norms[i])
+            m1_norms[p1m1r_i] = sqrt(m1_norms[p1m1r_i])
 
             # Preventing Division by Zero.
-            if m1_norms[i] == 0.0:
-                m1_norms[i] = 0.000001
-
+            if m1_norms[p1m1r_i] == 0.0:
+                m1_norms[p1m1r_i] = 0.000001
 
         # Calculating the Norms for the second matrix.
-        for i in prange(m2_I, schedule='guided'):
+        for p2m2_i in prange(m2_I, schedule='guided'):
 
             # Calculating Sum.
-            # for j in range(m2_J):
-            #     m2_norms[i] += m2[i, j] * m2[i, j]
-            for ci_i in range(ci_I):
-                m2_norms[i] += m2[i, ci[ci_i]] * m2[i, ci[ci_i]]
+            for p2_j in range(m_J):
+                m2_norms[p2m2_i] += m2[p2m2_i, p2_j] * m2[p2m2_i, p2_j]
 
             # Calculating the Square root of the sum
-            m2_norms[i] = sqrt(m2_norms[i])
+            m2_norms[p2m2_i] = sqrt(m2_norms[p2m2_i])
 
             # Preventing Division by Zero.
-            if m2_norms[i] == 0.0:
-                m2_norms[i] = 0.000001
+            if m2_norms[p2m2_i] == 0.0:
+                m2_norms[p2m2_i] = 0.000001
 
         # Calculating the cosine similarity product.
         # NOTE: The m2 matrix is expected to be NON-trasposed but it will treated like it.
-        for i in prange(m1_I, schedule='guided'):
+        for p3m1r_i in prange(m1r_I, schedule='guided'):
 
-            for j in range(m2_I):
-
-                # Calculating the elemnt-wise sum of products.
-                for ci_i in range(ci_I):
-                    cssim_vect[i, j] += m1[i, ci[ci_i]] * m2[j, ci[ci_i]]
-
-                # Normalizing with the products of the respective vector norms.
-                cssim_vect[i, j] = cssim_vect[i, j] / (m1_norms[i] * m2_norms[j])
-
-    return cssim_vect
-
-
-cpdef double [:, ::1] minmax_sim(double [:, ::1] m1, double [:, ::1] m2, Py_ssize_t [::1] ci):
-
-    cdef:
-        # Matrix index variables.
-        Py_ssize_t i, j, iz, jz, ci_i
-        double min_sum = 0.0
-        double max_sum = 0.0
-
-        # Matrices dimentions intilized variables.
-        Py_ssize_t m1_I = m1.shape[0]
-        Py_ssize_t m1_J = m1.shape[1]
-        Py_ssize_t m2_I = m2.shape[0]
-        Py_ssize_t m2_J = m2.shape[1]
-        Py_ssize_t ci_I = ci.shape[0]
-
-        # MemoryViews for the cython arrays used for sotring the temporary and...
-        # ...to be retured results.
-        double [::1] m1_norms
-        double [::1] m2_norms
-        double [:, ::1] cssim_vect
-
-    # Creating the temporary cython arrays.
-    cssim_vect = cvarray(shape=(m1_I, m2_I), itemsize=sizeof(double), format="d")
-
-    # The following operatsion taking place in the non-gil and parallel...
-    # ...openmp emviroment.
-    with nogil, parallel():
-
-        # Initilising temporary storage arrays. NOTE: This is a mandatory process because as...
-        # ...in C garbage values can case floating point overflow, thus, peculiar results...
-        # ...like NaN or incorrect calculatons.
-        for iz in range(m1_I):
-            for jz in range(m2_I):
-                cssim_vect[iz, jz] = 0.0
-
-        # Calculating the MinMax similarity product.
-        # NOTE: The m2 matrix is expected to be NON-trasposed but it will treated like it.
-        for i in prange(m1_I, schedule='guided'):
-
-            for j in range(m2_I):
-
-                # Initializing the Min and Max Sums.
-                min_sum = 0.0
-                max_sum = 0.0
-
-                # Calculating the elemnt-wise MinMax sums ratio.
-                for ci_i in range(ci_I):
-
-                    if m1[i, ci[ci_i]] <= m2[j, ci[ci_i]]:
-
-                        min_sum = min_sum + m1[i, ci[ci_i]]
-                        max_sum = max_sum + m2[j, ci[ci_i]]
-
-                    else:
-
-                        max_sum = max_sum + m1[i, ci[ci_i]]
-                        min_sum = min_sum + m2[j, ci[ci_i]]
-
-                # Normalizing with the products of the respective vector norms.
-                cssim_vect[i, j] = min_sum / max_sum
-
-    return cssim_vect
-
-
-# To Become ===> eucl_sim
-cpdef double [:, ::1] eudis_2d(double [:, ::1] m1, double [:, ::1] m2):
-
-    cdef:
-        # Matrix index variables.
-        Py_ssize_t i, j, k, iz, jz
-
-        # Matrices dimentions intilized variables.
-        Py_ssize_t m1_I = m1.shape[0]
-        Py_ssize_t m1_J = m1.shape[1]
-        Py_ssize_t m2_I = m2.shape[0]
-
-        # MemoryViews for the cython arrays used for sotring the temporary and...
-        # ...to be retured results.
-        double [:, ::1] eudis_vect
-
-    # Creating the temporary cython arrays.
-    eudis_vect = cvarray(shape=(m1_I, m2_I), itemsize=sizeof(double), format="d")
-
-    # The following operatsion taking place in the non-gil and parallel...
-    # ...openmp emviroment.
-    with nogil, parallel():
-
-        # Initilising temporary storage arrays. NOTE: This is a mandatory process because as...
-        # ...in C garbage values can case floating point overflow, thus, peculiar results...
-        # ...like NaN or incorrect calculatons.
-        for iz in range(m1_I):
-            for jz in range(m2_I):
-                eudis_vect[iz, jz] = 0.0
-
-        # Calculating the euclidian distances amogst all vectros of both matrices.
-        # NOTE: The m2 matrix is expected to be NON-trasposed but it will treated like it.
-        for i in prange(m1_I, schedule='guided'):
-
-            for j in range(m2_I):
+            for p3m2_i in range(m2_I):
 
                 # Calculating the elemnt-wise sum of products.
-                for k in range(m1_J):
-                    eudis_vect[i, j] += (m1[i, k] - m2[j, k]) * (m1[i, k] - m2[j, k])
+                for p3_j in range(m_J):
+                    cssim_vect[p3m1r_i, p3m2_i] += m1[m1rows_i[p3m1r_i], p3_j] * m2[p3m2_i, p3_j]
 
                 # Normalizing with the products of the respective vector norms.
-                eudis_vect[i, j] = sqrt(eudis_vect[i, j])
+                cssim_vect[p3m1r_i, p3m2_i] = cssim_vect[p3m1r_i, p3m2_i] / (m1_norms[p3m1r_i] * m2_norms[p3m2_i])
 
-    return eudis_vect
+    return cssim_vect
