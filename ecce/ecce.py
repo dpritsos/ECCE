@@ -44,11 +44,15 @@ class ECCE(object):
 
     def _fit(self, trn_mtrx, cls_tgs):
 
+        print "Passed..."
+
         # Preventing '0' class-tag usage as Known-class tag.
         if np.min(cls_tgs) == 0:
             msg = "Class tag '0' not allowed because 0 class indicates Uknown-Class " +\
                     "in the Open-set Classification framework"
             raise Exception(msg)
+
+        print "Training..."
 
         # Calculating the initial sigma thresholds on Centroids.
         for i, gnr_tag in enumerate(np.unique(cls_tgs)):
@@ -62,7 +66,10 @@ class ECCE(object):
             # Creating the initial Class Centroids.
             # TO BE RELPACED WITH CYTHON
             sum_cvect = trn_mtrx[gnr_set_idxs].sum(axis=0)
-            cls_cvect = (sum_cvect / np.linalg.norm(sum_cvect))
+            norm_scv = np.linalg.norm(sum_cvect)
+            if norm_scv == 0.0:
+                norm_scv = 1.0
+            cls_cvect = (sum_cvect / norm_scv)
             cls_cvect = cls_cvect.reshape((1, cls_cvect.size))
 
             # Calculating the similarities of the Genre's traning set pages with the...
@@ -103,6 +110,8 @@ class ECCE(object):
 
     def _predict(self, tst_mtrx):
 
+        print "Predicting..."
+
         # Initilising Predicted Scores and Predicted Y for the class tags to be returned
         self.predicted_scores = list()
         self.predicted_Y = list()
@@ -114,7 +123,10 @@ class ECCE(object):
         for smpl_i in np.random.permutation(tst_mtrx.shape[0]):
 
             # Normalizing the Sum-Centroid of all Genre Classes.
-            grn_ctrds = self.gnr_csums / np.linalg.norm(self.gnr_csums)
+            norm_scv = np.linalg.norm(self.gnr_csums)
+            if norm_scv == 0.0:
+                norm_scv = 1.0
+            grn_ctrds = self.gnr_csums / norm_scv
 
             # Calculating the similarities of the random test pages with all the...
             # ...Genre Centroinds.
