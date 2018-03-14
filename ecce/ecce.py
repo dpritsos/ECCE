@@ -12,9 +12,8 @@ class ECCE(object):
 
         if sim_func == 'cosine_sim':
             self.sim_func = cy.cosine_sim
-        elif sim_func == 'py_cosine_sim':
-            print "NOT TESTED - NOT WORKING"
-            self.sim_func = py.cosine_sim
+        elif sim_func == 'minmax_sim':
+            self.sim_func = cy.minmax_sim
 
         print "Initialing ECCE..."
 

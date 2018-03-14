@@ -92,3 +92,63 @@ cpdef double [:, ::1] cosine_sim(double [:, ::1] m1, Py_ssize_t [::1] m1rows_i, 
                 cssim_vect[p3m1r_i, p3m2_i] = cssim_vect[p3m1r_i, p3m2_i] / (m1_norms[p3m1r_i] * m2_norms[p3m2_i])
 
     return cssim_vect
+
+
+cpdef double [:, ::1] minmax_sim(double [:, ::1] m1, Py_ssize_t [::1] m1rows_i, double [:, ::1] m2):
+
+    cdef:
+        # Matrix index variables.
+        Py_ssize_t m1r_i, m2_i, m_j, pm1r_i, pm2_i
+        double min_sum = 0.0
+        double max_sum = 0.0
+
+        # Matrices dimentions intilized variables.
+        Py_ssize_t m_J = m1.shape[1]
+        Py_ssize_t m2_I = m2.shape[0]
+        Py_ssize_t m1r_I = m1rows_i.shape[0]
+
+        # MemoryViews for the cython arrays used for sotring the temporary and...
+        # ...to be retured results.
+        double [:, ::1] cssim_vect
+
+    # Creating the temporary cython arrays.
+    cssim_vect = cvarray(shape=(m1r_I, m2_I), itemsize=sizeof(double), format="d")
+
+    # The following operatsion taking place in the non-gil and parallel...
+    # ...openmp emviroment.
+    with nogil, parallel():
+
+        # Initilising temporary storage arrays. NOTE: This is a mandatory process because as...
+        # ...in C garbage values can case floating point overflow, thus, peculiar results...
+        # ...like NaN or incorrect calculatons.
+        for m1r_i in range(m1r_I):
+            for m2_i in range(m2_I):
+                cssim_vect[m1r_i, m2_i] = 0.0
+
+        # Calculating the MinMax similarity product.
+        # NOTE: The m2 matrix is expected to be NON-trasposed but it will treated like it.
+        for pm1r_i in prange(m1r_I, schedule='guided'):
+
+            for pm2_i in range(m2_I):
+
+                # Initializing the Min and Max Sums.
+                min_sum = 0.0
+                max_sum = 0.0
+
+                # Calculating the elemnt-wise MinMax sums ratio.
+                for m_j in range(m_J):
+
+                    if m1[pm1r_i, m_j] <= m2[pm2_i, m_j]:
+
+                        min_sum = min_sum + m1[pm1r_i, m_j]
+                        max_sum = max_sum + m2[pm2_i, m_j]
+
+                    else:
+
+                        max_sum = max_sum + m1[pm1r_i, m_j]
+                        min_sum = min_sum + m2[pm2_i, m_j]
+
+                # Normalizing with the products of the respective vector norms.
+                cssim_vect[pm1r_i, pm2_i] = min_sum / max_sum
+
+    return cssim_vect
