@@ -126,6 +126,7 @@ class ECCE(object):
             if norm_scv == 0.0:
                 norm_scv = 1.0
             grn_ctrds = self.gnr_csums / norm_scv
+            # print grn_ctrds
 
             # Calculating the similarities of the random test pages with all the...
             # ...Genre Centroinds.
@@ -136,6 +137,7 @@ class ECCE(object):
 
             # Checking the max-similarity with the sigma-threshold for decising wheather to...
             # ...classify the sample to the most similar genre or to discart it as noise.
+            # print tst_i_csims[maxsim_ci], self.gnr_ssums[maxsim_ci] / self.grn_snum[maxsim_ci]
             if tst_i_csims[maxsim_ci] >= self.gnr_ssums[maxsim_ci] / self.grn_snum[maxsim_ci]:
 
                 # Adjusting the max-similar centroid's new sum values. Adding the samples that is...
@@ -157,7 +159,8 @@ class ECCE(object):
 
             else:
 
-                self.predicted_scores.append(0.0)
+                # self.predicted_scores.append(0.0)
+                self.predicted_scores.append(tst_i_csims[maxsim_ci])
                 self.predicted_Y.append(0)
 
         # Converting the results list to numpy arrays.
